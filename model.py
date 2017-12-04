@@ -98,8 +98,8 @@ class PixelCNN(nn.Module):
     
         num_mix = 3 if self.input_channels == 1 else 10
         
-        self.nin_out = nin(nr_filters, num_mix * nr_logistic_mix)
-        # self.nin_out = nin(nr_filters, self.input_channels) 
+        # self.nin_out = nin(nr_filters, num_mix * nr_logistic_mix)
+        self.nin_out = nin(nr_filters, 256) #self.input_channels) 
 
         self.init_padding = None
 
@@ -153,8 +153,7 @@ class PixelCNN(nn.Module):
 
         assert len(u_list) == len(ul_list) == 0, pdb.set_trace()
 
-        # return x_out
-        return F.tanh(x_out)
+        return x_out
         
 
 if __name__ == '__main__':

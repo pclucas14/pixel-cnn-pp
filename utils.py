@@ -6,6 +6,19 @@ from torch.autograd import Variable
 from torch.nn.utils import weight_norm as wn
 import numpy as np
 
+class MaskedConv2d(nn.Conv2d):
+    def __init__(self, mask_type, *args, **kwargs):
+        super(MaskedConv2d, self).__init__(*args, **kwargs)
+        assert mask_type in {'A', 'B'}
+        self.register_buffer('mask', self.weight.data.clone())
+        _, _, kH, kW = self.weight.size()
+        self.mask.fill_(1)
+        self.mask[:, :, kH // 2, kW // 2 + (mask_type == 'B'):] = 0
+        self.mask[:, :, kH // 2 + 1:] = 0
+
+    def forward(self, x):
+        self.weight.data *= self.mask
+        return super(MaskedConv2d, self).forward(x)
 
 def concat_elu(x):
     """ like concatenated ReLU (http://arxiv.org/abs/1603.05201), but then with ELU """
@@ -91,6 +104,7 @@ def discretized_mix_logistic_loss(x, l, sum_all=True):
     
     inner_inner_cond = (cdf_delta > 1e-5).float()
     inner_inner_out  = inner_inner_cond * torch.log(torch.clamp(cdf_delta, min=1e-12)) + (1. - inner_inner_cond) * (log_pdf_mid - np.log(127.5))
+    # inner_inner_out  = torch.log(cdf_delta)
     inner_cond       = (x > 0.999).float()
     inner_out        = inner_cond * log_one_minus_cdf_min + (1. - inner_cond) * inner_inner_out
     cond             = (x < -0.999).float()
