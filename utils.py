@@ -41,7 +41,7 @@ def discretized_mix_logistic_loss(x, l, sum_all=True):
    
 
     # here and below: unpacking the params of the mixture of logistics
-    nr_mix = int(ls[-1] / 10) if x.size(3) == 3 else int(ls[-1] / 4)
+    nr_mix = int(ls[-1] / 10) 
     logit_probs = l[:, :, :, :nr_mix]
     l = l[:, :, :, nr_mix:].contiguous().view(xs + [nr_mix * 3]) # 3 for mean, scale, coef
     means = l[:, :, :, :, :nr_mix]

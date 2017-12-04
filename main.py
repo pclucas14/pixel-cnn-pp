@@ -12,7 +12,7 @@ from PIL import Image
 nr_logistic_mix = 10
 batch_size = 32
 sample_batch_size = 9 
-MNIST = True
+MNIST = False
 obs = (1, 28, 28) if MNIST else (3, 32, 32)
 input_channels = obs[0]
 
@@ -31,14 +31,16 @@ if MNIST :
         batch_size=batch_size, shuffle=True, **kwargs)
 
     loss_op = lambda real, fake : discretized_mix_logistic_loss_1d(real, fake)
-    sample_op = lambda x : sample_from_logistic_mix_1d(x, nr_logistic_mix)
+    sample_op = lambda x : sample_from_discretized_logistic_mix_1d(x, nr_logistic_mix)
 
 else : 
-    trainset = datasets.CIFAR10(root='./data', train=True, download=True, transform=transforms.ToTensor())
+    trainset = datasets.CIFAR10(root='./data', train=True, download=True, transform=
+            transforms.Compose([transforms.ToTensor(), 
+                                lambda x : (x - .5) * 2]))
     train_loader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, shuffle=True, num_workers=2, drop_last=True)
     
     loss_op = lambda real, fake : discretized_mix_logistic_loss(real, fake)
-    sample_op = lambda x : sample_from_logistic_mix(x, nr_logistic_mix)
+    sample_op = lambda x : sample_from_discretized_logistic_mix(x, nr_logistic_mix)
 
 
 model = PixelCNN(nr_resnet=3, nr_filters=60, input_channels=input_channels, nr_logistic_mix=nr_logistic_mix)
