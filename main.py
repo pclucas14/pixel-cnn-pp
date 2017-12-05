@@ -32,7 +32,7 @@ parser.add_argument('-l', '--lr', type=float,
                     default=0.001, help='Base learning rate')
 parser.add_argument('-e', '--lr_decay', type=float, default=0.999995,
                     help='Learning rate decay, applied every step of the optimization')
-parser.add_argument('-b', '--batch_size', type=int, default=12,
+parser.add_argument('-b', '--batch_size', type=int, default=64,
                     help='Batch size during training per GPU')
 parser.add_argument('-x', '--max_epochs', type=int,
                     default=5000, help='How many epochs to run in total?')
@@ -77,6 +77,7 @@ else :
 
 model = PixelCNN(nr_resnet=args.nr_resnet, nr_filters=args.nr_filters, 
             input_channels=input_channels, nr_logistic_mix=args.nr_logistic_mix)
+# model = nn.DataParallel(model)
 model = model.cuda()
 print(model)
 
@@ -125,6 +126,7 @@ for epoch in range(args.max_epochs):
     torch.cuda.synchronize()
     model.eval()
     test_loss = 0.
+    print('test time!')
     for batch_idx, (input,_) in enumerate(test_loader):
         input = input.cuda(async=True)
         input = Variable(input)
