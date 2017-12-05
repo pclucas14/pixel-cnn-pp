@@ -47,15 +47,12 @@ class PixelCNNLayer_down(nn.Module):
                                             for _ in range(nr_resnet)])
 
     def forward(self, u, ul, u_list, ul_list):
-        og_u, og_ul = u, ul
-        
         for i in range(self.nr_resnet):
             u  = self.u_stream[i](u, a=u_list.pop())
             ul = self.ul_stream[i](ul, a=torch.cat((u, ul_list.pop()), 1))
         
         return u, ul
          
-
 
 class PixelCNN(nn.Module):
     def __init__(self, nr_resnet=5, nr_filters=80, nr_logistic_mix=10, 
@@ -100,9 +97,7 @@ class PixelCNN(nn.Module):
                                             filter_size=(2,1), shift_output_right=True)])
     
         num_mix = 3 if self.input_channels == 1 else 10
-        
         self.nin_out = nin(nr_filters, num_mix * nr_logistic_mix)
-
         self.init_padding = None
 
 
@@ -119,10 +114,7 @@ class PixelCNN(nn.Module):
             padding = padding.cuda() if x.is_cuda else padding
             x = torch.cat((x, padding), 1)
 
-
         ###      UP PASS    ###
-        # initial convolutions
-        
         x = x if sample else torch.cat((x, self.init_padding), 1)
         u_list  = [self.u_init(x)]
         ul_list = [self.ul_init[0](x) + self.ul_init[1](x)]
@@ -136,7 +128,6 @@ class PixelCNN(nn.Module):
                 # downscale (only twice)
                 u_list  += [self.downsize_u_stream[i](u_list[-1])]
                 ul_list += [self.downsize_ul_stream[i](ul_list[-1])]
-
 
         ###    DOWN PASS    ###
         u  = u_list.pop()
@@ -159,24 +150,23 @@ class PixelCNN(nn.Module):
         
 
 if __name__ == '__main__':
+    ''' testing loss with tf version '''
     np.random.seed(1)
     xx_t = (np.random.rand(15, 32, 32, 100) * 3).astype('float32')
     yy_t  = np.random.uniform(-1, 1, size=(15, 32, 32, 3)).astype('float32')
     x_t = Variable(torch.from_numpy(xx_t)).cuda()
     y_t = Variable(torch.from_numpy(yy_t)).cuda()
-
     loss = discretized_mix_logistic_loss(y_t, x_t)
-    
+   
+    ''' testing model and deconv dimensions '''
     x = torch.cuda.FloatTensor(32, 3, 32, 32).uniform_(-1., 1.)
     xv = Variable(x).cpu()
     ds = down_shifted_deconv2d(3, 40, stride=(2,2))
-    pdb.set_trace()
     x_v = Variable(x)
+
+    ''' testing loss compatibility '''
     model = PixelCNN(nr_resnet=3, nr_filters=100, input_channels=x.size(1))
-
     model = model.cuda()
-
     out = model(x_v)
     loss = discretized_mix_logistic_loss(x_v, out)
-
     print('loss : %s' % loss.data[0])

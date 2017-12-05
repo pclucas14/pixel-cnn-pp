@@ -31,7 +31,7 @@ def log_prob_from_logits(x):
     return x - m - torch.log(torch.sum(torch.exp(x - m), dim=axis, keepdim=True))
 
 
-def discretized_mix_logistic_loss(x, l, sum_all=True):
+def discretized_mix_logistic_loss(x, l):
     """ log-likelihood for mixture of discretized logistics, assumes the data has been rescaled to [-1,1] interval """
     # Pytorch ordering
     x = x.permute(0, 2, 3, 1)
@@ -90,28 +90,22 @@ def discretized_mix_logistic_loss(x, l, sum_all=True):
     
     inner_inner_cond = (cdf_delta > 1e-5).float()
     inner_inner_out  = inner_inner_cond * torch.log(torch.clamp(cdf_delta, min=1e-12)) + (1. - inner_inner_cond) * (log_pdf_mid - np.log(127.5))
-    # inner_inner_out  = torch.log(cdf_delta)
     inner_cond       = (x > 0.999).float()
     inner_out        = inner_cond * log_one_minus_cdf_min + (1. - inner_cond) * inner_inner_out
     cond             = (x < -0.999).float()
     log_probs        = cond * log_cdf_plus + (1. - cond) * inner_out
     log_probs        = torch.sum(log_probs, dim=3) + log_prob_from_logits(logit_probs)
     
-    
-    if sum_all:
-        return -torch.sum(log_sum_exp(log_probs))
-    else:
-        import pdb; pdb.set_trace()
-        return -tf.reduce_sum(log_sum_exp(log_probs), [1, 2])
+    return -torch.sum(log_sum_exp(log_probs))
 
-def discretized_mix_logistic_loss_1d(x, l, sum_all=True):
+
+def discretized_mix_logistic_loss_1d(x, l):
     """ log-likelihood for mixture of discretized logistics, assumes the data has been rescaled to [-1,1] interval """
     # Pytorch ordering
     x = x.permute(0, 2, 3, 1)
     l = l.permute(0, 2, 3, 1)
     xs = [int(y) for y in x.size()]
     ls = [int(y) for y in l.size()]
-   
 
     # here and below: unpacking the params of the mixture of logistics
     nr_mix = int(ls[-1] / 3)
@@ -149,12 +143,7 @@ def discretized_mix_logistic_loss_1d(x, l, sum_all=True):
     log_probs        = cond * log_cdf_plus + (1. - cond) * inner_out
     log_probs        = torch.sum(log_probs, dim=3) + log_prob_from_logits(logit_probs)
     
-    
-    if sum_all:
-        return -torch.sum(log_sum_exp(log_probs))
-    else:
-        import pdb; pdb.set_trace()
-        return -tf.reduce_sum(log_sum_exp(log_probs), [1, 2])
+    return -torch.sum(log_sum_exp(log_probs))
 
 
 def to_one_hot(tensor, n, fill_with=1.):
@@ -188,10 +177,6 @@ def sample_from_discretized_mix_logistic_1d(l, nr_mix):
     means = torch.sum(l[:, :, :, :, :nr_mix] * sel, dim=4) 
     log_scales = torch.clamp(torch.sum(
         l[:, :, :, :, nr_mix:2 * nr_mix] * sel, dim=4), min=-7.)
-    # coeffs = torch.sum(F.tanh(
-    #     l[:, :, :, :, 2 * nr_mix:3 * nr_mix]) * sel, dim=4)
-    # sample from logistic & clip to interval
-    # we don't actually round to the nearest 8bit value when sampling
     u = torch.FloatTensor(means.size())
     if l.is_cuda : u = u.cuda()
     u.uniform_(1e-5, 1. - 1e-5)
@@ -201,10 +186,6 @@ def sample_from_discretized_mix_logistic_1d(l, nr_mix):
     out = x0.unsqueeze(1)
     return out
 
-    out = torch.cat([x0.view(xs[:-1] + [1]), x1.view(xs[:-1] + [1]), x2.view(xs[:-1] + [1])], dim=3)
-    # put back in Pytorch ordering
-    out = out.permute(0, 3, 1, 2)
-    return out
 
 def sample_from_discretized_mix_logistic(l, nr_mix):
     # Pytorch ordering
@@ -321,10 +302,6 @@ class gated_resnet(nn.Module):
 
 
 ''' utilities for shifting the image around, efficient alternative to masking convolutions '''
-# def down_shift(x):
-#     xs = int_shape(x)
-#     return tf.concat([tf.zeros([xs[0], 1, xs[2], xs[3]]), x[:, :xs[1] - 1, :, :]], 1)
-
 def down_shift(x, pad=None):
     # Pytorch ordering
     xs = [int(y) for y in x.size()]
@@ -334,9 +311,6 @@ def down_shift(x, pad=None):
     pad = nn.ZeroPad2d((0, 0, 1, 0)) if pad is None else pad
     return pad(x)
 
-# def right_shift(x):
-#     xs = int_shape(x)
-#     return tf.concat([tf.zeros([xs[0], xs[1], 1, xs[3]]), x[:, :, :xs[2] - 1, :]], 2)
 
 def right_shift(x, pad=None):
     # Pytorch ordering
@@ -347,18 +321,6 @@ def right_shift(x, pad=None):
     pad = nn.ZeroPad2d((1, 0, 0, 0)) if pad is None else pad
     return pad(x)
 
-"""
-@add_arg_scope
-def down_shifted_conv2d(x, num_filters, filter_size=[2, 3], stride=[1, 1], **kwargs):
-    tensorflow padding is : 
-    # [ [bs_before, bs_after], 
-    #   [pad_top, pad_down], 
-    #   [pad_left, pad_right], 
-    #   [chan_before, chan_after] ]
-    x = tf.pad(x, [[0, 0], [filter_size[0] - 1, 0],
-                   [int((filter_size[1] - 1) / 2), int((filter_size[1] - 1) / 2)], [0, 0]])
-    return conv2d(x, num_filters, filter_size=filter_size, pad='VALID', stride=stride, **kwargs)
-"""
 
 class down_shifted_conv2d(nn.Module):
     def __init__(self, num_filters_in, num_filters_out, filter_size=(2,3), stride=(1,1), 
@@ -388,11 +350,6 @@ class down_shifted_deconv2d(nn.Module):
         self.stride = stride
 
     def forward(self, x):
-        '''
-        tf's conv2d_tranpose with valid padding does some implicit padding for output to match 
-        the target size. I changed the code to get the good dimension, I'm unsure however it 
-        this approac respects the autoregressive property of PCNN.
-        '''
         x = self.deconv(x)
         xs = [int(y) for y in x.size()]
         return x[:, :, :(xs[2] - self.filter_size[0] + 1), 
@@ -425,11 +382,6 @@ class down_right_shifted_deconv2d(nn.Module):
         self.stride = stride
 
     def forward(self, x):
-        '''
-        tf's conv2d_tranpose with valid padding does some implicit padding for output to match 
-        the target size. I changed the code to get the good dimension, I'm unsure however it 
-        this approac respects the autoregressive property of PCNN.
-        '''
         x = self.deconv(x)
         xs = [int(y) for y in x.size()]
         x = x[:, :, :(xs[2] - self.filter_size[0] + 1):, :(xs[3] - self.filter_size[1] + 1)]
