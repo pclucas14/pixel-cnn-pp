@@ -12,7 +12,7 @@ from PIL import Image
 nr_logistic_mix = 10
 batch_size = 128
 sample_batch_size = 25
-MNIST = False
+MNIST = True
 obs = (1, 28, 28) if MNIST else (3, 32, 32)
 input_channels = obs[0]
 rescaling     = lambda x : (x - .5) * 2.
@@ -32,7 +32,7 @@ if MNIST :
 
 else : 
     train_loader = torch.utils.data.DataLoader(datasets.CIFAR10(root='./data', train=True, 
-        download=True, transform=ds_transforms), batch_size=batch_size, shuffle=True)
+        download=True, transform=ds_transforms), batch_size=batch_size, shuffle=True, **kwargs)
     
     test_loader  = torch.utils.data.DataLoader(datasets.CIFAR10('data', train=False, 
                     transform=ds_transforms), batch_size=128, shuffle=True, **kwargs)
@@ -67,7 +67,6 @@ for epoch in range(100):
     train_loss = 0.
     model.train()
     for batch_idx, (input,_) in enumerate(train_loader):
-        if batch_idx > 100 : break
         input = input.cuda(async=True)
         input = Variable(input)
         output = model(input)
@@ -84,7 +83,6 @@ for epoch in range(100):
     model.eval()
     test_loss = 0.
     for batch_idx, (input,_) in enumerate(train_loader):
-        if batch_idx > 20 : break
         input = input.cuda(async=True)
         input = Variable(input)
         output = model(input)
