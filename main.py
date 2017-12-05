@@ -1,52 +1,91 @@
+import argparse
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+from torch.optim import lr_scheduler
 from torchvision import datasets, transforms, utils
 from utils import * 
 from model import * 
-import gzip
-import cPickle
 from PIL import Image
 
-nr_logistic_mix = 10
-batch_size = 128
+parser = argparse.ArgumentParser()
+# data I/O
+parser.add_argument('-i', '--data_dir', type=str,
+                    default='data', help='Location for the dataset')
+parser.add_argument('-o', '--save_dir', type=str, default='models',
+                    help='Location for parameter checkpoints and samples')
+parser.add_argument('-d', '--dataset', type=str,
+                    default='cifar', help='Can be either cifar|mnist')
+parser.add_argument('-t', '--save_interval', type=int, default=10,
+                    help='Every how many epochs to write checkpoint/samples?')
+parser.add_argument('-r', '--load_params', type=str, default=None,
+                    help='Restore training from previous model checkpoint?')
+# model
+parser.add_argument('-q', '--nr_resnet', type=int, default=5,
+                    help='Number of residual blocks per stage of the model')
+parser.add_argument('-n', '--nr_filters', type=int, default=160,
+                    help='Number of filters to use across the model. Higher = larger model.')
+parser.add_argument('-m', '--nr_logistic_mix', type=int, default=10,
+                    help='Number of logistic components in the mixture. Higher = more flexible model')
+parser.add_argument('-l', '--lr', type=float,
+                    default=0.001, help='Base learning rate')
+parser.add_argument('-e', '--lr_decay', type=float, default=0.999995,
+                    help='Learning rate decay, applied every step of the optimization')
+parser.add_argument('-b', '--batch_size', type=int, default=12,
+                    help='Batch size during training per GPU')
+parser.add_argument('-x', '--max_epochs', type=int,
+                    default=5000, help='How many epochs to run in total?')
+parser.add_argument('-s', '--seed', type=int, default=1,
+                    help='Random seed to use')
+args = parser.parse_args()
+
+# reproducibility
+torch.manual_seed(args.seed)
+np.random.seed(args.seed)
+
 sample_batch_size = 25
-MNIST = True
-obs = (1, 28, 28) if MNIST else (3, 32, 32)
+obs = (1, 28, 28) if 'mnist' in args.dataset else (3, 32, 32)
 input_channels = obs[0]
 rescaling     = lambda x : (x - .5) * 2.
 rescaling_inv = lambda x : .5 * x  + .5
 kwargs = {'num_workers':1, 'pin_memory':True, 'drop_last':True}
 ds_transforms = transforms.Compose([transforms.ToTensor(), rescaling])
 
-if MNIST : 
-    train_loader = torch.utils.data.DataLoader(datasets.MNIST('data', train=True, download=True, 
-                    transform=ds_transforms), batch_size=128, shuffle=True, **kwargs)
+if 'mnist' in args.dataset : 
+    train_loader = torch.utils.data.DataLoader(datasets.MNIST(args.data_dir, download=True, 
+                        train=True, transform=ds_transforms), batch_size=args.batch_size, 
+                            shuffle=True, **kwargs)
     
-    test_loader  = torch.utils.data.DataLoader(datasets.MNIST('data', train=False, 
-                    transform=ds_transforms), batch_size=128, shuffle=True, **kwargs)
+    test_loader  = torch.utils.data.DataLoader(datasets.MNIST(args.data_dir, train=False, 
+                    transform=ds_transforms), batch_size=args.batch_size, shuffle=True, **kwargs)
     
     loss_op   = lambda real, fake : discretized_mix_logistic_loss_1d(real, fake)
-    sample_op = lambda x : sample_from_discretized_mix_logistic_1d(x, nr_logistic_mix)
+    sample_op = lambda x : sample_from_discretized_mix_logistic_1d(x, args.nr_logistic_mix)
 
-else : 
-    train_loader = torch.utils.data.DataLoader(datasets.CIFAR10(root='./data', train=True, 
-        download=True, transform=ds_transforms), batch_size=batch_size, shuffle=True, **kwargs)
+elif 'cifar' in args.dataset : 
+    train_loader = torch.utils.data.DataLoader(datasets.CIFAR10(args.data_dir, train=True, 
+        download=True, transform=ds_transforms), batch_size=args.batch_size, shuffle=True, **kwargs)
     
-    test_loader  = torch.utils.data.DataLoader(datasets.CIFAR10('data', train=False, 
-                    transform=ds_transforms), batch_size=128, shuffle=True, **kwargs)
+    test_loader  = torch.utils.data.DataLoader(datasets.CIFAR10(args.data_dir, train=False, 
+                    transform=ds_transforms), batch_size=args.batch_size, shuffle=True, **kwargs)
     
     loss_op   = lambda real, fake : discretized_mix_logistic_loss(real, fake)
-    sample_op = lambda x : sample_from_discretized_mix_logistic(x, nr_logistic_mix)
+    sample_op = lambda x : sample_from_discretized_mix_logistic(x, args.nr_logistic_mix)
+else :
+    raise Exception('{} dataset not in {mnist, cifar10}'.format(args.dataset))
 
-
-model = PixelCNN(nr_resnet=3, nr_filters=70, input_channels=input_channels, 
-                    nr_logistic_mix=nr_logistic_mix)
+model = PixelCNN(nr_resnet=args.nr_resnet, nr_filters=args.nr_filters, 
+            input_channels=input_channels, nr_logistic_mix=args.nr_logistic_mix)
 model = model.cuda()
+print(model)
 
-# optimizer = optim.Adamax(model.parameters(), lr=4e-4)
-optimizer = optim.Adam(model.parameters())
+if args.load_params:
+    model.load_state_dict(torch.load(args.load_params))
+    print('model parameters loaded')
+
+optimizer = optim.Adam(model.parameters(), lr=args.lr)
+scheduler = lr_scheduler.StepLR(optimizer, step_size=1, gamma=args.lr_decay)
 
 def sample(model):
     model.train(False)
@@ -60,8 +99,9 @@ def sample(model):
             data[:, :, i, j] = out_sample.data[:, :, i, j]
     return data
 
+
 print('starting training')
-for epoch in range(100):
+for epoch in range(args.max_epochs):
     model.train(True)
     torch.cuda.synchronize()
     train_loss = 0.
@@ -76,29 +116,28 @@ for epoch in range(100):
         optimizer.step()
         train_loss += loss.data[0]
         if batch_idx % 10 == 9 : 
-            print('loss : %s' % (train_loss / (10*np.prod((batch_size,) + obs))))
+            print('loss : %s' % (train_loss / (10*np.prod((args.batch_size,) + obs))))
             train_loss = 0.
+
+    # decrease learning rate
+    scheduler.step()
     
     torch.cuda.synchronize()
     model.eval()
     test_loss = 0.
-    for batch_idx, (input,_) in enumerate(train_loader):
+    for batch_idx, (input,_) in enumerate(test_loader):
         input = input.cuda(async=True)
         input = Variable(input)
         output = model(input)
         loss = loss_op(input, output)
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
         test_loss += loss.data[0]
     
-    print('test loss : %s' % (test_loss / (batch_idx*np.prod((batch_size,) + obs))))
+    print('test loss : %s' % (test_loss / (batch_idx*np.prod((args.batch_size,) + obs))))
     
-    print('sampling...')
-    sample_t = sample(model)
-    sample_t = rescaling_inv(sample_t)
-    ds = 'mnist' if MNIST else 'cifar'
-    utils.save_image(sample_t,'images/{}_{}.png'.format(ds, epoch), nrow=5, padding=0)
-    
-    if epoch % 10 == 9: 
-        torch.save(model.state_dict(), 'models/{}_{}.pth'.format(ds, epoch))
+    if (epoch + 1) % args.save_interval == 0: 
+        torch.save(model.state_dict(), 'models/{}_{}.pth'.format(args.dataset, epoch))
+        print('sampling...')
+        sample_t = sample(model)
+        sample_t = rescaling_inv(sample_t)
+        utils.save_image(sample_t,'images/{}_{}.png'.format(args.dataset, epoch), nrow=5, 
+            padding=0)
