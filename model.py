@@ -98,8 +98,8 @@ class PixelCNN(nn.Module):
     
         num_mix = 3 if self.input_channels == 1 else 10
         
-        # self.nin_out = nin(nr_filters, num_mix * nr_logistic_mix)
-        self.nin_out = nin(nr_filters, 256) #self.input_channels) 
+        self.nin_out = nin(nr_filters, num_mix * nr_logistic_mix)
+        # self.nin_out = nin(nr_filters, 256) #self.input_channels) 
 
         self.init_padding = None
 
@@ -157,6 +157,14 @@ class PixelCNN(nn.Module):
         
 
 if __name__ == '__main__':
+    np.random.seed(1)
+    xx_t = (np.random.rand(15, 32, 32, 100) * 3).astype('float32')
+    yy_t  = np.random.uniform(-1, 1, size=(15, 32, 32, 3)).astype('float32')
+    x_t = Variable(torch.from_numpy(xx_t)).cuda()
+    y_t = Variable(torch.from_numpy(yy_t)).cuda()
+
+    loss = discretized_mix_logistic_loss(y_t, x_t)
+    
     x = torch.cuda.FloatTensor(32, 3, 32, 32).uniform_(-1., 1.)
     xv = Variable(x).cpu()
     ds = down_shifted_deconv2d(3, 40, stride=(2,2))

@@ -6,19 +6,6 @@ from torch.autograd import Variable
 from torch.nn.utils import weight_norm as wn
 import numpy as np
 
-class MaskedConv2d(nn.Conv2d):
-    def __init__(self, mask_type, *args, **kwargs):
-        super(MaskedConv2d, self).__init__(*args, **kwargs)
-        assert mask_type in {'A', 'B'}
-        self.register_buffer('mask', self.weight.data.clone())
-        _, _, kH, kW = self.weight.size()
-        self.mask.fill_(1)
-        self.mask[:, :, kH // 2, kW // 2 + (mask_type == 'B'):] = 0
-        self.mask[:, :, kH // 2 + 1:] = 0
-
-    def forward(self, x):
-        self.weight.data *= self.mask
-        return super(MaskedConv2d, self).forward(x)
 
 def concat_elu(x):
     """ like concatenated ReLU (http://arxiv.org/abs/1603.05201), but then with ELU """
@@ -52,7 +39,6 @@ def discretized_mix_logistic_loss(x, l, sum_all=True):
     xs = [int(y) for y in x.size()]
     ls = [int(y) for y in l.size()]
    
-
     # here and below: unpacking the params of the mixture of logistics
     nr_mix = int(ls[-1] / 10) 
     logit_probs = l[:, :, :, :nr_mix]
@@ -193,7 +179,7 @@ def sample_from_discretized_mix_logistic_1d(l, nr_mix):
     temp = torch.FloatTensor(logit_probs.size())
     if l.is_cuda : temp = temp.cuda()
     temp.uniform_(1e-5, 1. - 1e-5)
-    temp = - torch.log(- torch.log(temp))
+    temp = logit_probs.data - torch.log(- torch.log(temp))
     _, argmax = temp.max(dim=3)
    
     one_hot = to_one_hot(argmax, nr_mix)
@@ -233,7 +219,7 @@ def sample_from_discretized_mix_logistic(l, nr_mix):
     temp = torch.FloatTensor(logit_probs.size())
     if l.is_cuda : temp = temp.cuda()
     temp.uniform_(1e-5, 1. - 1e-5)
-    temp = - torch.log(- torch.log(temp))
+    temp = logit_probs.data - torch.log(- torch.log(temp))
     _, argmax = temp.max(dim=3)
    
     one_hot = to_one_hot(argmax, nr_mix)

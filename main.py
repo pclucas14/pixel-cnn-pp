@@ -11,61 +11,38 @@ from PIL import Image
 
 nr_logistic_mix = 10
 batch_size = 128
-sample_batch_size = 144 
-MNIST = True
+sample_batch_size = 25
+MNIST = False
 obs = (1, 28, 28) if MNIST else (3, 32, 32)
 input_channels = obs[0]
-rescaling     = lambda x : x #(x - .5) * 2.
-rescaling_inv = lambda x : x #.5 * x  + .5
+rescaling     = lambda x : (x - .5) * 2.
+rescaling_inv = lambda x : .5 * x  + .5
+kwargs = {'num_workers':1, 'pin_memory':True, 'drop_last':True}
+ds_transforms = transforms.Compose([transforms.ToTensor(), rescaling])
 
 if MNIST : 
-    with gzip.open('data/mnist.pkl.gz', 'rb') as f : 
-        train_set, valid_set, test_set = cPickle.load(f)
-
-    train_set = ((train_set[0] - 0.5) * 2).reshape((train_set[0].shape[0], 1, 28, 28))
-    valid_set = ((valid_set[0] - 0.5) * 2).reshape((valid_set[0].shape[0], 1, 28, 28))
-
-    kwargs = {'num_workers':1, 'pin_memory':True, 'drop_last':True}
-    
     train_loader = torch.utils.data.DataLoader(datasets.MNIST('data', train=True, download=True, 
-                    transform=transforms.ToTensor()), batch_size=128, shuffle=True, **kwargs)
-
-    # train_loader = torch.utils.data.DataLoader(train_set,
-    #     batch_size=batch_size, shuffle=True, drop_last=True, **kwargs)
-
-    # test_loader = torch.utils.data.DataLoader(valid_set,
-    #     batch_size=batch_size, shuffle=True, **kwargs)
-
-    loss_op = lambda real, fake : discretized_mix_logistic_loss_1d(real, fake)
+                    transform=ds_transforms), batch_size=128, shuffle=True, **kwargs)
+    
+    test_loader  = torch.utils.data.DataLoader(datasets.MNIST('data', train=False, 
+                    transform=ds_transforms), batch_size=128, shuffle=True, **kwargs)
+    
+    loss_op   = lambda real, fake : discretized_mix_logistic_loss_1d(real, fake)
     sample_op = lambda x : sample_from_discretized_mix_logistic_1d(x, nr_logistic_mix)
 
 else : 
-    trainset = datasets.CIFAR10(root='./data', train=True, download=True, transform=
-            transforms.Compose([transforms.ToTensor(), rescaling]))
-    train_loader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, shuffle=True, num_workers=2, drop_last=True)
+    train_loader = torch.utils.data.DataLoader(datasets.CIFAR10(root='./data', train=True, 
+        download=True, transform=ds_transforms), batch_size=batch_size, shuffle=True)
     
-    loss_op = lambda real, fake : discretized_mix_logistic_loss(real, fake)
+    test_loader  = torch.utils.data.DataLoader(datasets.CIFAR10('data', train=False, 
+                    transform=ds_transforms), batch_size=128, shuffle=True, **kwargs)
+    
+    loss_op   = lambda real, fake : discretized_mix_logistic_loss(real, fake)
     sample_op = lambda x : sample_from_discretized_mix_logistic(x, nr_logistic_mix)
 
 
-model = PixelCNN(nr_resnet=3, nr_filters=60, input_channels=input_channels, 
+model = PixelCNN(nr_resnet=3, nr_filters=70, input_channels=input_channels, 
                     nr_logistic_mix=nr_logistic_mix)
-
-'''
-fm = 64
-model = nn.Sequential(
-    MaskedConv2d('A', 1,  fm, 7, 1, 3, bias=False), nn.BatchNorm2d(fm), nn.ReLU(True),
-    MaskedConv2d('B', fm, fm, 7, 1, 3, bias=False), nn.BatchNorm2d(fm), nn.ReLU(True),
-    MaskedConv2d('B', fm, fm, 7, 1, 3, bias=False), nn.BatchNorm2d(fm), nn.ReLU(True),
-    MaskedConv2d('B', fm, fm, 7, 1, 3, bias=False), nn.BatchNorm2d(fm), nn.ReLU(True),
-    MaskedConv2d('B', fm, fm, 7, 1, 3, bias=False), nn.BatchNorm2d(fm), nn.ReLU(True),
-    MaskedConv2d('B', fm, fm, 7, 1, 3, bias=False), nn.BatchNorm2d(fm), nn.ReLU(True),
-    MaskedConv2d('B', fm, fm, 7, 1, 3, bias=False), nn.BatchNorm2d(fm), nn.ReLU(True),
-    MaskedConv2d('B', fm, fm, 7, 1, 3, bias=False), nn.BatchNorm2d(fm), nn.ReLU(True),
-    nn.Conv2d(fm, 256, 1))
-print model
-'''
-
 model = model.cuda()
 
 # optimizer = optim.Adamax(model.parameters(), lr=4e-4)
@@ -79,49 +56,51 @@ def sample(model):
         for j in range(obs[2]):
             data_v = Variable(data, volatile=True)
             out   = model(data_v, sample=True)
-            probs = F.softmax(out[:, :, i, j]).data
-            data[:, :, i, j] = torch.multinomial(probs, 1).float() / 255.
-            # out_sample = sample_op(out)
-            # data[:, :, i, j] = out_sample[:, :, i, j]
-
+            out_sample = sample_op(out)
+            data[:, :, i, j] = out_sample.data[:, :, i, j]
     return data
-
-def show_tensor(sample, epoch=0):
-    grid = np.concatenate([sample[i] for i in range(sample.shape[0])], axis=1)
-    # grid = (grid * 0.5) + 0.5
-    grid *= 255.
-    grid = grid.transpose(1, 2, 0)
-    grid = grid.astype('uint8')
-    mode = 'mnist' if MNIST else 'cifar'
-    if MNIST : grid = grid.squeeze()
-    Image.fromarray(grid).save('images/{}_{}.png'.format(mode, epoch))
-
 
 print('starting training')
 for epoch in range(100):
     model.train(True)
     torch.cuda.synchronize()
+    train_loss = 0.
+    model.train()
     for batch_idx, (input,_) in enumerate(train_loader):
-        # data = data if MNIST else data[0]
+        if batch_idx > 100 : break
         input = input.cuda(async=True)
         input = Variable(input)
-        target = Variable((input.data[:, 0] * 255).long())
         output = model(input)
-        # loss = loss_op(data, output)
-        loss = F.cross_entropy(output, target, reduce=False).sum()
+        loss = loss_op(input, output)
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
+        train_loss += loss.data[0]
         if batch_idx % 10 == 9 : 
-            print('loss : %s' % (loss.data[0] / np.prod((batch_size,) + obs)))
+            print('loss : %s' % (train_loss / (10*np.prod((batch_size,) + obs))))
+            train_loss = 0.
     
     torch.cuda.synchronize()
+    model.eval()
+    test_loss = 0.
+    for batch_idx, (input,_) in enumerate(train_loader):
+        if batch_idx > 20 : break
+        input = input.cuda(async=True)
+        input = Variable(input)
+        output = model(input)
+        loss = loss_op(input, output)
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        test_loss += loss.data[0]
+    
+    print('test loss : %s' % (test_loss / (batch_idx*np.prod((batch_size,) + obs))))
+    
     print('sampling...')
     sample_t = sample(model)
     sample_t = rescaling_inv(sample_t)
-    utils.save_image(sample_t,'images/sample_{:02d}.png'.format(epoch), nrow=12, padding=0)
-    print('max : %s, min : %s' % (sample_t.max(), sample_t.min()))
-    # show_tensor(sample_t[:9].cpu().numpy(), epoch=epoch)
-    # show_tensor(data.data.cpu()[:9].numpy(), epoch=epoch+1000)
-        
-        
+    ds = 'mnist' if MNIST else 'cifar'
+    utils.save_image(sample_t,'images/{}_{}.png'.format(ds, epoch), nrow=5, padding=0)
+    
+    if epoch % 10 == 9: 
+        torch.save(model.state_dict(), 'models/{}_{}.pth'.format(ds, epoch))
