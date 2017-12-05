@@ -125,7 +125,7 @@ for epoch in range(args.max_epochs):
     
     torch.cuda.synchronize()
     model.eval()
-    test_loss = 0.
+    test_loss, iters = 0, 0
     print('test time!')
     for batch_idx, (input,_) in enumerate(test_loader):
         input = input.cuda(async=True)
@@ -133,8 +133,9 @@ for epoch in range(args.max_epochs):
         output = model(input)
         loss = loss_op(input, output)
         test_loss += loss.data[0]
+        iters += 1
     
-    print('test loss : %s' % (test_loss / (batch_idx*np.prod((args.batch_size,) + obs))))
+    print('test loss : %s' % (test_loss / (iters*np.prod((args.batch_size,) + obs))))
     
     if (epoch + 1) % args.save_interval == 0: 
         torch.save(model.state_dict(), 'models/{}_{}.pth'.format(args.dataset, epoch))

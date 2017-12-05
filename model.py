@@ -40,6 +40,7 @@ class PixelCNNLayer_down(nn.Module):
         self.u_stream  = nn.ModuleList([gated_resnet(nr_filters, down_shifted_conv2d, 
                                         resnet_nonlinearity, skip_connection=1) 
                                             for _ in range(nr_resnet)])
+        
         # stream from pixels above and to thes left
         self.ul_stream = nn.ModuleList([gated_resnet(nr_filters, down_right_shifted_conv2d, 
                                         resnet_nonlinearity, skip_connection=2) 
@@ -47,9 +48,11 @@ class PixelCNNLayer_down(nn.Module):
 
     def forward(self, u, ul, u_list, ul_list):
         og_u, og_ul = u, ul
+        
         for i in range(self.nr_resnet):
             u  = self.u_stream[i](u, a=u_list.pop())
             ul = self.ul_stream[i](ul, a=torch.cat((u, ul_list.pop()), 1))
+        
         return u, ul
          
 
@@ -99,7 +102,6 @@ class PixelCNN(nn.Module):
         num_mix = 3 if self.input_channels == 1 else 10
         
         self.nin_out = nin(nr_filters, num_mix * nr_logistic_mix)
-        # self.nin_out = nin(nr_filters, 256) #self.input_channels) 
 
         self.init_padding = None
 
