@@ -1,3 +1,4 @@
+import time
 import argparse
 import torch
 import torch.nn as nn
@@ -106,6 +107,7 @@ for epoch in range(args.max_epochs):
     model.train(True)
     torch.cuda.synchronize()
     train_loss = 0.
+    time_ = time.time()
     model.train()
     for batch_idx, (input,_) in enumerate(train_loader):
         input = input.cuda(async=True)
@@ -116,16 +118,19 @@ for epoch in range(args.max_epochs):
         loss.backward()
         optimizer.step()
         train_loss += loss.data[0]
-        if batch_idx % 10 == 9 : 
-            print('loss : %s' % (train_loss / (10*np.prod((args.batch_size,) + obs))))
+        if batch_idx % 50 == 49 : 
+            print('loss : {:.4f}, time : {:.4f}'.format(
+                (train_loss / (50*np.prod(obs)*args.batch_size*np.log(2.))), 
+                (time.time() - time_)))
             train_loss = 0.
+            time_ = time.time()
 
     # decrease learning rate
     scheduler.step()
     
     torch.cuda.synchronize()
     model.eval()
-    test_loss, iters = 0, 0
+    test_loss = 0.
     print('test time!')
     for batch_idx, (input,_) in enumerate(test_loader):
         input = input.cuda(async=True)
@@ -133,9 +138,8 @@ for epoch in range(args.max_epochs):
         output = model(input)
         loss = loss_op(input, output)
         test_loss += loss.data[0]
-        iters += 1
-    
-    print('test loss : %s' % (test_loss / (iters*np.prod((args.batch_size,) + obs))))
+        del loss, output
+    print('test loss : %s' % (test_loss / (batch_idx*np.log(2.)*np.prod(obs))))
     
     if (epoch + 1) % args.save_interval == 0: 
         torch.save(model.state_dict(), 'models/{}_{}.pth'.format(args.dataset, epoch))
