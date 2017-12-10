@@ -142,9 +142,9 @@ for epoch in range(args.max_epochs):
     print('test loss : %s' % (test_loss / (batch_idx*np.log(2.)*np.prod(obs))))
     
     if (epoch + 1) % args.save_interval == 0: 
-        torch.save(model.state_dict(), 'models/{}_{}.pth'.format(args.dataset, epoch))
+        torch.save(model.state_dict(), 'models/pixel_cnn_{}_{}.pth'.format(args.dataset, epoch))
         print('sampling...')
         sample_t = sample(model)
         sample_t = rescaling_inv(sample_t)
-        utils.save_image(sample_t,'images/{}_{}.png'.format(args.dataset, epoch), nrow=5, 
+        utils.save_image(sample_t,'images/pixel_cnn_{}_{}.png'.format(args.dataset, epoch), nrow=5, 
             padding=0)
