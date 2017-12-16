@@ -1,4 +1,5 @@
 import time
+import os
 import argparse
 import torch
 import torch.nn as nn
@@ -6,6 +7,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.optim import lr_scheduler
 from torchvision import datasets, transforms, utils
+from tensorboardX import SummaryWriter
 from utils import * 
 from model import * 
 from PIL import Image
@@ -18,6 +20,8 @@ parser.add_argument('-o', '--save_dir', type=str, default='models',
                     help='Location for parameter checkpoints and samples')
 parser.add_argument('-d', '--dataset', type=str,
                     default='cifar', help='Can be either cifar|mnist')
+parser.add_argument('-p', '--print_every', type=int, default=50,
+                    help='how many iterations between print statements')
 parser.add_argument('-t', '--save_interval', type=int, default=10,
                     help='Every how many epochs to write checkpoint/samples?')
 parser.add_argument('-r', '--load_params', type=str, default=None,
@@ -30,7 +34,7 @@ parser.add_argument('-n', '--nr_filters', type=int, default=160,
 parser.add_argument('-m', '--nr_logistic_mix', type=int, default=10,
                     help='Number of logistic components in the mixture. Higher = more flexible model')
 parser.add_argument('-l', '--lr', type=float,
-                    default=0.001, help='Base learning rate')
+                    default=0.0002, help='Base learning rate')
 parser.add_argument('-e', '--lr_decay', type=float, default=0.999995,
                     help='Learning rate decay, applied every step of the optimization')
 parser.add_argument('-b', '--batch_size', type=int, default=64,
@@ -44,6 +48,10 @@ args = parser.parse_args()
 # reproducibility
 torch.manual_seed(args.seed)
 np.random.seed(args.seed)
+
+model_name = 'pcnn_lr:{:.5f}_nr-resnet{}_nr-filters{}'.format(args.lr, args.nr_resnet, args.nr_filters)
+assert not os.path.exists(os.path.join('runs', model_name)), '{} already exists!'.format(model_name)
+writer = SummaryWriter(log_dir=os.path.join('runs', model_name))
 
 sample_batch_size = 25
 obs = (1, 28, 28) if 'mnist' in args.dataset else (3, 32, 32)
@@ -78,12 +86,11 @@ else :
 
 model = PixelCNN(nr_resnet=args.nr_resnet, nr_filters=args.nr_filters, 
             input_channels=input_channels, nr_logistic_mix=args.nr_logistic_mix)
-# model = nn.DataParallel(model)
 model = model.cuda()
-#print(model)
 
 if args.load_params:
-    model.load_state_dict(torch.load(args.load_params))
+    load_part_of_model(model, args.load_params)
+    # model.load_state_dict(torch.load(args.load_params))
     print('model parameters loaded')
 
 optimizer = optim.Adam(model.parameters(), lr=args.lr)
@@ -101,8 +108,8 @@ def sample(model):
             data[:, :, i, j] = out_sample.data[:, :, i, j]
     return data
 
-
 print('starting training')
+writes = 0
 for epoch in range(args.max_epochs):
     model.train(True)
     torch.cuda.synchronize()
@@ -118,12 +125,16 @@ for epoch in range(args.max_epochs):
         loss.backward()
         optimizer.step()
         train_loss += loss.data[0]
-        if batch_idx % 50 == 49 : 
+        if (batch_idx +1) % args.print_every == 0 : 
+            deno = args.print_every * args.batch_size * np.prod(obs) * np.log(2.)
+            writer.add_scalar('train/bpd', (train_loss / deno), writes)
             print('loss : {:.4f}, time : {:.4f}'.format(
-                (train_loss / (50*np.prod(obs)*args.batch_size*np.log(2.))), 
+                (train_loss / deno), 
                 (time.time() - time_)))
             train_loss = 0.
+            writes += 1
             time_ = time.time()
+            
 
     # decrease learning rate
     scheduler.step()
@@ -131,20 +142,22 @@ for epoch in range(args.max_epochs):
     torch.cuda.synchronize()
     model.eval()
     test_loss = 0.
-    print('test time!')
     for batch_idx, (input,_) in enumerate(test_loader):
         input = input.cuda(async=True)
-        input = Variable(input)
-        output = model(input)
-        loss = loss_op(input, output)
+        input_var = Variable(input)
+        output = model(input_var)
+        loss = loss_op(input_var, output)
         test_loss += loss.data[0]
         del loss, output
-    print('test loss : %s' % (test_loss / (batch_idx*np.log(2.)*np.prod(obs))))
+
+    deno = batch_idx * args.batch_size * np.prod(obs) * np.log(2.)
+    writer.add_scalar('test/bpd', (test_loss / deno), writes)
+    print('test loss : %s' % (test_loss / deno))
     
     if (epoch + 1) % args.save_interval == 0: 
-        torch.save(model.state_dict(), 'models/pixel_cnn_{}_{}.pth'.format(args.dataset, epoch))
+        torch.save(model.state_dict(), 'models/{}_{}.pth'.format(model_name, epoch))
         print('sampling...')
         sample_t = sample(model)
         sample_t = rescaling_inv(sample_t)
-        utils.save_image(sample_t,'images/pixel_cnn_{}_{}.png'.format(args.dataset, epoch), nrow=5, 
-            padding=0)
+        utils.save_image(sample_t,'images/{}_{}.png'.format(model_name, epoch), 
+                nrow=5, padding=0)
