@@ -10,6 +10,6 @@ TODO :
 
 add multi gpu support
 
-add TensorboardX support
+✓ add TensorboardX support
 
 make things more Pytorch-y
