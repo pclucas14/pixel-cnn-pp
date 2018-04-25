@@ -4,7 +4,7 @@ A Pytorch Implementation of [PixelCNN++.](https://arxiv.org/pdf/1701.05517.pdf)
 
 Main work taken from the [official implementation](https://github.com/openai/pixel-cnn)
 
-Pre-trained models are available [here:]https://mega.nz/#F!W7IhST7R!PV7Pbet8Q07GxVLGnmQrZg
+Pre-trained models are available [here](https://mega.nz/#F!W7IhST7R!PV7Pbet8Q07GxVLGnmQrZg)
 
 I kept the code structure to facilitate comparison with the official code. 
 
