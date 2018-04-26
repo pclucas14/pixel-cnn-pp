@@ -27,4 +27,4 @@ python main.py
 
 ### Contact
 For questions / comments / requests, feel free to send me an email.\
-Happy generative modeling :)
+Happy generative modelling :)
