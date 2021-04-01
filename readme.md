@@ -26,5 +26,4 @@ python main.py
 2. No exponential moving average of past models for test set evalutation
 
 ### Contact
-For questions / comments / requests, feel free to send me an email.\
-Happy generative modelling :)
+This repository is no longer maintained. Feel free to file an issue if need be, however response may be slow. 
